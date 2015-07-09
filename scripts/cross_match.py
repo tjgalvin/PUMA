@@ -1,5 +1,5 @@
 #!/usr/bin/python
-import atpy
+#import atpy
 import numpy as np
 import subprocess
 import optparse
@@ -10,35 +10,35 @@ try:
 	import pyfits as fits
 except ImportError:
 	from astropy.io import fits
-	
+
 parser = optparse.OptionParser()
 
 parser.add_option('-a', '--table1',
 	help='Enter name of table1')
-	
+
 parser.add_option('-b', '--table2',
 	help='Enter name of table2')
-	
-parser.add_option('-c', '--details1', 
+
+parser.add_option('-c', '--details1',
 	help='Enter table1 details name,RA,RA_error,Dec,Dec_error,freq,flux,flux_error,PA,major,minor,flags,ID,freq2,flux2,flux2_error,flux3,flux3_error etc.' \
 	'Any columns that do not exist, input -. Add as many fluxs as required')
-	
+
 parser.add_option('-d', '--details2',
 	help='Enter table2 details')
-	
+
 parser.add_option('-e', '--units1',
 	help='Enter table1 units in order of RA,RA_error,Dec,Dec_error,flux,flux_error,PA,major,minor' \
 	     'Enter as | for angles: either deg,arcsec,arcmin,min,sec | for flux: either Jy,mJy      ')
-	
+
 parser.add_option('-f', '--units2',
 	help='Enter table2 units')
-	
+
 parser.add_option('-g', '--prefix1',
 	help='Enter name of table1')
-	
+
 parser.add_option('-i', '--prefix2',
 	help='Enter name of table2')
-	
+
 parser.add_option('-m', '--make_table',action='store_true',default=False,
 	help='Add to store the simple tables')
 
@@ -47,17 +47,17 @@ parser.add_option('-s', '--separation',
 
 parser.add_option('-v', '--verbose',action='store_true',default=False,
 	help='Enter to turn on all of the astropy warnings')
-	
-parser.add_option('-w', '--ra_lims1', 
+
+parser.add_option('-w', '--ra_lims1',
 	help='Enter RA lims to calculate source density of catalogue 1')
-	
-parser.add_option('-x', '--dec_lims1', 
+
+parser.add_option('-x', '--dec_lims1',
 	help='Enter Dec lims to calculate source density of catalogue 1')
-	
-parser.add_option('-y', '--ra_lims2', 
+
+parser.add_option('-y', '--ra_lims2',
 	help='Enter RA lims to calculate source density of catalogue 2')
-	
-parser.add_option('-z', '--dec_lims2', 
+
+parser.add_option('-z', '--dec_lims2',
 	help='Enter Dec lims to calculate source density of catalogue 2')
 
 options, args = parser.parse_args()
@@ -111,34 +111,47 @@ def get_units_blanks(data,detail,unit,unit_type,entries):
 	if detail=='-':
 		return column
 	else:
-		for i in xrange(entries):
-			try:
-				entry = float(data[detail][i])
-				if unit_type=='angle':
-					if unit=='deg':
-						column[i] = entry
-					elif unit=='arcmin':
-						column[i] = entry/60.0
-					elif unit=='arcsec':
-						column[i] = entry/3600.0
-					elif unit=='min':
-						column[i] = entry*(15.0/60.0)
-					elif unit=='sec':
-						column[i] = entry*(15.0/3600.0)
-					else:
-						print 'angle coversion error'
-				if unit_type=='flux':
-					if unit=='Jy':
-						column[i] = entry
-					elif unit=='mJy':
-						column[i] = entry/1000.0
-					else:
-						print 'flux conversion error'
-			except ValueError:
-				column[i]=-100000.0
-				
+		if unit_type=='angle':
+			if unit=='deg':
+				factor = 1.0
+			elif unit=='arcmin':
+				factor = 1.0/60.0
+			elif unit=='arcsec':
+				factor = 1.0/3600.0
+			elif unit=='min':
+				factor = 15.0 / 60.0
+			elif unit=='sec':
+				factor = 15.0 / 3600.0
+			else:
+				print 'angle coversion error'
+		if unit_type=='flux':
+			if unit=='Jy':
+				factor = 1.0
+			elif unit=='mJy':
+				factor = 1.0 / 1000.0
+			else:
+				print 'flux conversion error'
+
+
+		# I am guessing that the -100000.0 is used as a marker
+		# for when an item is empty. I am not 100% certain of
+		# the best way to handle it with the ndarray element
+		# broadcasting (for it to work properly they all need to
+		# be floats). So, try to the speedy way, fall back to the
+		# slow way
+
+		try:
+			print data[detail].dtype
+			column = data[detail] * factor
+		except:
+			for i in xrange(entries):
+				try:
+					entry = float(data[detail][i])
+					column[i] = entry * factor
+				except ValueError:
+					column[i] = -100000.0
 		return column
-			
+
 def make_table(data,details,units,prefix,ra_lims,dec_lims):
 	##Find all of the data in the columns as specified by the
 	##user inputs
@@ -155,7 +168,7 @@ def make_table(data,details,units,prefix,ra_lims,dec_lims):
 	PA = get_units_blanks(data,details[8],units[6],'angle',entries)
 	major = get_units_blanks(data,details[9],units[7],'angle',entries)
 	minor = get_units_blanks(data,details[10],units[8],'angle',entries)
-	
+
 	if details[11]=='-':
 		flags = np.empty(entries); flags.fill(-100000.0)
 	else:
@@ -175,12 +188,12 @@ def make_table(data,details,units,prefix,ra_lims,dec_lims):
 			freqs.append(details[13+(3*i)])
 			fluxs.append(get_units_blanks(data,details[13+1+(3*i)],units[9+(2*i)],'flux',entries))
 			ferrs.append(get_units_blanks(data,details[13+2+(3*i)],units[10+(2*i)],'flux',entries))
-			
+
 	def get_lune(ra1,ra2,dec1,dec2):
 		'''Calculates the steradian coverage of a lune defined by two RA,Dec
 		coords'''
 		return abs((ra2*dr-ra1*dr)*(np.sin(dec2*dr)-np.sin(dec1*dr)))
-	
+
 	##Count the number of sources within the requested user lune to calculate the scaled
 	##source density of the catalogues
 	##If the ra lims do not cross over the RA = 0 line
@@ -193,7 +206,7 @@ def make_table(data,details,units,prefix,ra_lims,dec_lims):
 		extra = 360.0 - ra_lims[0]
 		area = get_lune(0,ra_lims[1]+extra,dec_lims[0],dec_lims[1])
 	scaled_source_density = (4*np.pi*len(sources_in_bounds))/area
-			
+
 	##Create a new table, and populate with the data in correct units
 	t=Table(masked=True,meta={'src_dens':scaled_source_density})
 	t_names = Column(name='%s_name' %prefix,data=names,description='Name from catalogue',dtype=str)
@@ -216,7 +229,7 @@ def make_table(data,details,units,prefix,ra_lims,dec_lims):
 		if type(i)==np.ma.core.MaskedConstant: mask.append(True)
 		else: mask.append(False)
 	t_fields = MaskedColumn(name='%s_FieldID' %prefix,data=ID,description='If avaiable, image field ID',mask=mask,fill_value='--',dtype=str)
-	
+
 	t.add_columns([t_names,t_ras,t_rerrs,t_decs,t_derrs,t_fluxes,t_ferrs,t_majors,t_minors,t_PAs,t_flags,t_fields])
 	#Again, handles multiple frequencies in one catalogues
 	if len(freqs)>0:
@@ -224,11 +237,11 @@ def make_table(data,details,units,prefix,ra_lims,dec_lims):
 			t_fextra = Column(name='%s_Flux_%.1f' %(prefix,float(freqs[i])),data=fluxs[i],description='Source flux at %.1fMHz' %float(freqs[i]),unit='Jy',dtype=float)
 			t_ferrextra = Column(name='%s_Flux_%.1f_err' %(prefix,float(freqs[i])),data=ferrs[i],description='Error on flux at %.1fMHz' %float(freqs[i]),unit='Jy',dtype=float)
 			t.add_columns([t_fextra,t_ferrextra])
-	
+
 	##Add the source density to the table
 	#t.add_keyword('%s_nu' %prefix,str(scaled_source_density))
 	t.write('simple_%s.fits' %prefix,overwrite=True,format='fits')
-	
+
 	return scaled_source_density
 
 
@@ -256,7 +269,7 @@ def read_table(name):
 		return table[1].data
 	else:
 		sys.exit('Entered table must either be VOTable or FITS')
-		
+
 ##Read in the table data
 data1 = read_table(options.table1)
 data2 = read_table(options.table2)
